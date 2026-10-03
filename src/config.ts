@@ -18,7 +18,12 @@ export interface BotConfig {
   discordWebhookUrl?: string;
   telegramBotToken?: string;
   telegramChatId?: string;
+  /** Mode fixe : montant par trade en wei. Ignoré si tradeAmountUsd est défini. */
   tradeAmountWei: bigint;
+  /** Mode dynamique : montant par trade en USD (prioritaire sur tradeAmountWei). */
+  tradeAmountUsd?: number;
+  /** Rafraîchissement du prix ETH (mode dynamique), en minutes. */
+  ethPriceRefreshMinutes: number;
   dailyBudgetWei: bigint;
   maxOpenPositions: number;
   maxSlippageBps: number;
@@ -100,8 +105,26 @@ export function loadConfig(): BotConfig {
     problems.push("HELPER_CONTRACT_ADDRESS invalide (adresse 0x40 hex attendue)");
   }
 
+  const tradeAmountUsd = readNumber("TRADE_AMOUNT_USD");
+  if (tradeAmountUsd !== undefined && tradeAmountUsd <= 0) {
+    problems.push("TRADE_AMOUNT_USD invalide (doit être > 0)");
+  }
+
+  const ethPriceRefreshMinutes = readNumber("ETH_PRICE_REFRESH_MINUTES", 10);
+  if (
+    ethPriceRefreshMinutes === undefined ||
+    ethPriceRefreshMinutes < 1 ||
+    ethPriceRefreshMinutes > 1440
+  ) {
+    problems.push("ETH_PRICE_REFRESH_MINUTES invalide (1..1440)");
+  }
+
   const tradeAmountWei = readEthToWei("TRADE_AMOUNT_ETH");
-  if (tradeAmountWei === undefined || tradeAmountWei <= 0n) {
+  if (tradeAmountUsd === undefined) {
+    if (tradeAmountWei === undefined || tradeAmountWei <= 0n) {
+      problems.push("TRADE_AMOUNT_ETH requis (ex: 0.05) ou TRADE_AMOUNT_USD (ex: 5)");
+    }
+  } else if (tradeAmountWei !== undefined && tradeAmountWei <= 0n) {
     problems.push("TRADE_AMOUNT_ETH invalide (ex: 0.05)");
   }
 
@@ -164,7 +187,9 @@ export function loadConfig(): BotConfig {
     discordWebhookUrl: readString("DISCORD_WEBHOOK_URL"),
     telegramBotToken: readString("TELEGRAM_BOT_TOKEN"),
     telegramChatId: readString("TELEGRAM_CHAT_ID"),
-    tradeAmountWei: tradeAmountWei!,
+    tradeAmountWei: tradeAmountWei ?? 0n,
+    tradeAmountUsd,
+    ethPriceRefreshMinutes: ethPriceRefreshMinutes!,
     dailyBudgetWei: dailyBudgetWei!,
     maxOpenPositions: maxOpenPositions!,
     maxSlippageBps: maxSlippageBps!,

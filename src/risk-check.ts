@@ -182,6 +182,7 @@ export async function assessRisk(
   publicClient: RiskReadClient,
   cfg: BotConfig,
   candidate: PoolCandidate,
+  tradeAmountWei?: bigint,
 ): Promise<RiskReport> {
   const metrics: RiskMetric[] = [];
   const report: RiskReport = {
@@ -241,6 +242,9 @@ export async function assessRisk(
             passed: false,
             detail: "contrat non vérifié (ou réponse Basescan invalide)",
           });
+          // ABI inutilisable : les contrôles suivants prennent le chemin
+          // "ABI indisponible" au lieu de tenter de parser la phrase d'erreur.
+          abiText = undefined;
         } else {
           metrics.push({ check: "basescan_verified", passed: true, detail: "contrat vérifié" });
         }
@@ -363,16 +367,17 @@ export async function assessRisk(
     }
 
     // 5. Simulation de vente (anti-honeypot) : quote aller puis retour.
+    const simulationAmount = tradeAmountWei ?? cfg.tradeAmountWei;
     try {
       const buyTokens = paths.buySingle
-        ? await quoteSingle(publicClient, WETH9, candidate.snipedToken, cfg.tradeAmountWei, candidate.fee)
-        : await quotePath(publicClient, paths.buyPath!, cfg.tradeAmountWei);
+        ? await quoteSingle(publicClient, WETH9, candidate.snipedToken, simulationAmount, candidate.fee)
+        : await quotePath(publicClient, paths.buyPath!, simulationAmount);
       const sellWeth = paths.sellSingle
         ? await quoteSingle(publicClient, candidate.snipedToken, WETH9, buyTokens, candidate.fee)
         : await quotePath(publicClient, paths.sellPath!, buyTokens);
       report.buyQuoteTokens = buyTokens;
       report.sellQuoteWeth = sellWeth;
-      const retention = roundtripRetention(cfg.tradeAmountWei, sellWeth);
+      const retention = roundtripRetention(simulationAmount, sellWeth);
       const retentionOk = retention >= MIN_ROUNDTRIP_RETENTION;
       metrics.push({
         check: "sell_simulation",

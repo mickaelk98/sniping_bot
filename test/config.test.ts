@@ -8,6 +8,8 @@ function setEnv(vars: Record<string, string | undefined>): void {
     "BASE_WS_URL",
     "BASE_RPC_URL",
     "TRADE_AMOUNT_ETH",
+    "TRADE_AMOUNT_USD",
+    "ETH_PRICE_REFRESH_MINUTES",
     "DAILY_BUDGET_ETH",
   ];
   for (const key of keys) delete process.env[key];
@@ -72,6 +74,28 @@ describe("loadConfig", () => {
 
   it("rejette un TRADE_AMOUNT_ETH écrasant le budget journalier ? non, mais un montant invalide oui", () => {
     setEnv({ ...VALID_BASE, TRADE_AMOUNT_ETH: "abc" });
+    expect(() => loadConfig()).toThrow(/TRADE_AMOUNT_ETH/);
+  });
+
+  it("mode dynamique : TRADE_AMOUNT_USD sans TRADE_AMOUNT_ETH est valide", () => {
+    const { TRADE_AMOUNT_ETH: _omis, ...sansEth } = VALID_BASE;
+    setEnv({ ...sansEth, TRADE_AMOUNT_USD: "5" });
+    const cfg = loadConfig();
+    expect(cfg.tradeAmountUsd).toBe(5);
+    expect(cfg.tradeAmountWei).toBe(0n);
+    expect(cfg.ethPriceRefreshMinutes).toBe(10);
+  });
+
+  it("TRADE_AMOUNT_USD est prioritaire quand les deux sont définis", () => {
+    setEnv({ ...VALID_BASE, TRADE_AMOUNT_USD: "5" });
+    const cfg = loadConfig();
+    expect(cfg.tradeAmountUsd).toBe(5);
+    expect(cfg.tradeAmountWei).toBe(50_000_000_000_000_000n);
+  });
+
+  it("aucun montant défini (ni ETH ni USD) -> erreur", () => {
+    const { TRADE_AMOUNT_ETH: _omis, ...sansEth } = VALID_BASE;
+    setEnv(sansEth);
     expect(() => loadConfig()).toThrow(/TRADE_AMOUNT_ETH/);
   });
 });

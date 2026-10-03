@@ -8,6 +8,7 @@ import { Guardrails } from "./guardrails.js";
 import { startPoolListener, type ListenerHandle } from "./listener.js";
 import { assessRisk } from "./risk-check.js";
 import { SwapExecutor } from "./execution.js";
+import { TradeAmountProvider } from "./trade-amount.js";
 import { PositionManager } from "./position-manager.js";
 import type { PoolCandidate } from "./types.js";
 
@@ -41,6 +42,10 @@ async function main(): Promise<void> {
   logInfo("demarrage", {
     mode: cfg.dryRun ? "DRY-RUN (simulation)" : "LIVE (transactions reelles)",
     tradeAmountEth: Number(cfg.tradeAmountWei) / 1e18,
+    sizing:
+      cfg.tradeAmountUsd !== undefined
+        ? `${cfg.tradeAmountUsd} USD dynamique (prix ETH on-chain, rafraichi toutes les ${cfg.ethPriceRefreshMinutes} min)`
+        : `${Number(cfg.tradeAmountWei) / 1e18} ETH fixe`,
     dailyBudgetEth: Number(cfg.dailyBudgetWei) / 1e18,
     maxOpenPositions: cfg.maxOpenPositions,
     takeProfitPct: cfg.takeProfitPct,
@@ -78,7 +83,13 @@ async function main(): Promise<void> {
   }
 
   const guardrails = new Guardrails(cfg);
-  const executor = new SwapExecutor({ publicClient, walletClient, cfg });
+  const amounts = new TradeAmountProvider(cfg, publicClient);
+  const executor = new SwapExecutor({ publicClient, walletClient, amounts, cfg });
+
+  // Mode dynamique : premier prix ETH dès le démarrage (log + validation).
+  if (cfg.tradeAmountUsd !== undefined) {
+    await amounts.currentEthPriceUsd();
+  }
 
   const positions = new PositionManager(cfg, executor, {
     onClosed: (position) => {
@@ -145,18 +156,19 @@ async function main(): Promise<void> {
       fee: candidate.fee,
     });
 
-    // Garde-fous AVANT toute analyse coûteuse.
-    const verdict = guardrails.canOpenPosition(positions.openCount());
+    // Garde-fous AVANT toute analyse coûteuse (avec le montant courant).
+    const tradeAmount = await amounts.currentAmountWei();
+    const verdict = guardrails.canOpenPosition(positions.openCount(), tradeAmount);
     if (!verdict.allowed) {
       logInfo("candidat_ignore", { raison: verdict.reason, token: candidate.snipedToken });
-      if (guardrails.shouldStop()) {
+      if (guardrails.shouldStop(tradeAmount)) {
         await stopBot("budget journalier atteint (arrêt automatique)");
       }
       return;
     }
 
     // 1. Risk-checks on-chain.
-    const report = await assessRisk(publicClient, cfg, candidate);
+    const report = await assessRisk(publicClient, cfg, candidate, tradeAmount);
     logInfo("risk_check", {
       token: candidate.snipedToken,
       passe: report.passed,
@@ -210,19 +222,21 @@ async function main(): Promise<void> {
       token: candidate.snipedToken,
       symbole: report.tokenSymbol ?? "?",
       montantWeth: Number(buy.amountInWeth) / 1e18,
+      montantUsd: cfg.tradeAmountUsd,
       tokensRecus: buy.tokenAmount.toString(),
       simule: buy.simulated,
       txHash: buy.txHash,
     });
+    const usdSuffix = cfg.tradeAmountUsd !== undefined ? ` (~${cfg.tradeAmountUsd.toFixed(2)}$)` : "";
     await notify(
       cfg,
       "Achat exécuté",
       `${report.tokenSymbol ?? "?"} (${candidate.snipedToken})\n` +
-        `Montant : ${Number(buy.amountInWeth) / 1e18} ETH` +
+        `Montant : ${Number(buy.amountInWeth) / 1e18} ETH${usdSuffix}` +
         (buy.simulated ? " (SIMULÉ - dry-run)" : ""),
     );
 
-    if (guardrails.shouldStop()) {
+    if (guardrails.shouldStop(buy.amountInWeth)) {
       await stopBot("budget journalier atteint après achat (arrêt automatique)");
     }
   }

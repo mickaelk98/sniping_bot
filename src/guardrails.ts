@@ -20,7 +20,7 @@ export class Guardrails {
   }
 
   /** À appeler avant chaque achat. Vérifie tous les garde-fous. */
-  canOpenPosition(openPositionCount: number): GuardrailVerdict {
+  canOpenPosition(openPositionCount: number, amountWei: bigint): GuardrailVerdict {
     this.rollDayIfNeeded();
 
     if (openPositionCount >= this.cfg.maxOpenPositions) {
@@ -29,14 +29,20 @@ export class Guardrails {
         reason: `positions_max (${openPositionCount}/${this.cfg.maxOpenPositions} ouvertes)`,
       };
     }
-    if (this.cfg.tradeAmountWei > this.cfg.dailyBudgetWei) {
+    if (amountWei <= 0n) {
       return {
         allowed: false,
-        reason: "budget_trade_superieur_budget_journalier (configuration incohérente)",
+        reason: "montant_de_trade_indisponible (hors bornes ou prix ETH inconnu)",
+      };
+    }
+    if (amountWei > this.cfg.dailyBudgetWei) {
+      return {
+        allowed: false,
+        reason: "montant_superieur_budget_journalier",
       };
     }
     const remaining = this.cfg.dailyBudgetWei - this.spentTodayWei;
-    if (this.cfg.tradeAmountWei > remaining) {
+    if (amountWei > remaining) {
       return {
         allowed: false,
         reason: `budget_journalier_atteint (${formatEth(this.spentTodayWei)}/${formatEth(
@@ -47,10 +53,10 @@ export class Guardrails {
     return { allowed: true };
   }
 
-  /** Budget journalier épuisé : le bot doit s'arrêter automatiquement. */
-  shouldStop(): boolean {
+  /** Budget journalier épuisé pour un trade du montant donné : arrêt auto. */
+  shouldStop(nextAmountWei: bigint): boolean {
     this.rollDayIfNeeded();
-    return this.cfg.dailyBudgetWei - this.spentTodayWei < this.cfg.tradeAmountWei;
+    return this.cfg.dailyBudgetWei - this.spentTodayWei < nextAmountWei;
   }
 
   /** Enregistre une dépense d'achat (en WETH/ETH wei). */

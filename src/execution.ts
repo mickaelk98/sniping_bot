@@ -13,6 +13,7 @@ import {
 } from "./constants.js";
 import type { BotConfig } from "./config.js";
 import { logInfo, logWarn } from "./logger.js";
+import { TradeAmountProvider } from "./trade-amount.js";
 import type { BuyResult, CloseReason, PoolCandidate, Position } from "./types.js";
 
 const NATIVE_ZERO = "0x0000000000000000000000000000000000000000" as const;
@@ -47,6 +48,8 @@ export interface WriteClient {
 export interface ExecutorDeps {
   publicClient: ReadClient;
   walletClient?: WriteClient;
+  /** Montant effectif par trade (fixe ou dynamique en USD). */
+  amounts: TradeAmountProvider;
   cfg: BotConfig;
 }
 
@@ -150,7 +153,9 @@ export class SwapExecutor {
         functionName: "balanceOf",
         args: [account],
       });
-      if (wethBalance >= this.cfg.tradeAmountWei) {
+      // Le tampon doit couvrir le budget journalier complet (modes fixe et
+      // dynamique) : les achats restent ainsi en une seule transaction.
+      if (wethBalance >= this.cfg.dailyBudgetWei) {
         logInfo("tampon_weth_ok", { weth: Number(wethBalance) / 1e18 });
         return;
       }
@@ -181,22 +186,34 @@ export class SwapExecutor {
     }
   }
 
-  /** Achat : quote frais -> amountOutMin dynamique -> swap (ou simulation). */
+  /** Achat : montant courant -> quote frais -> amountOutMin dynamique -> swap (ou simulation). */
   async buy(candidate: PoolCandidate): Promise<BuyResult> {
+    const amountIn = await this.deps.amounts.currentAmountWei();
+    if (amountIn === 0n) {
+      return {
+        ok: false,
+        simulated: this.cfg.dryRun,
+        token: candidate.snipedToken,
+        amountInWeth: 0n,
+        tokenAmount: 0n,
+        error: "montant de trade indisponible (hors bornes ou prix ETH inconnu)",
+      };
+    }
+
     let quotedTokens: bigint;
     try {
       quotedTokens = await this.quoteBuy(
         candidate.snipedToken,
         candidate.fee,
         candidate.baseToken,
-        this.cfg.tradeAmountWei,
+        amountIn,
       );
     } catch (err) {
       return {
         ok: false,
         simulated: this.cfg.dryRun,
         token: candidate.snipedToken,
-        amountInWeth: this.cfg.tradeAmountWei,
+        amountInWeth: amountIn,
         tokenAmount: 0n,
         error: `quotage achat impossible : ${err instanceof Error ? err.message : String(err)}`,
       };
@@ -210,7 +227,7 @@ export class SwapExecutor {
         fee: candidate.fee,
         baseToken: candidate.baseToken,
         mode: this.cfg.helperContractAddress ? "contrat" : "routeur",
-        montantInWei: this.cfg.tradeAmountWei.toString(),
+        montantInWei: amountIn.toString(),
         tokensQuotes: quotedTokens.toString(),
         amountOutMin: amountOutMin.toString(),
       });
@@ -218,7 +235,7 @@ export class SwapExecutor {
         ok: true,
         simulated: true,
         token: candidate.snipedToken,
-        amountInWeth: this.cfg.tradeAmountWei,
+        amountInWeth: amountIn,
         tokenAmount: quotedTokens,
       };
     }
@@ -229,7 +246,7 @@ export class SwapExecutor {
         ok: false,
         simulated: false,
         token: candidate.snipedToken,
-        amountInWeth: this.cfg.tradeAmountWei,
+        amountInWeth: amountIn,
         tokenAmount: 0n,
         error: "wallet absent (PRIVATE_KEY non configure)",
       };
@@ -252,11 +269,11 @@ export class SwapExecutor {
                   NATIVE_ZERO,
                   candidate.snipedToken,
                   candidate.fee,
-                  this.cfg.tradeAmountWei,
+                  amountIn,
                   amountOutMin,
                   deadline,
                 ],
-                value: this.cfg.tradeAmountWei,
+                value: amountIn,
                 chain: null, account,
               })
             : await walletClient.writeContract({
@@ -267,11 +284,11 @@ export class SwapExecutor {
                   encodeV3Path([WETH9, USDC_NATIVE, candidate.snipedToken], [WETH_USDC_FEE, candidate.fee]),
                   true,
                   false,
-                  this.cfg.tradeAmountWei,
+                  amountIn,
                   amountOutMin,
                   deadline,
                 ],
-                value: this.cfg.tradeAmountWei,
+                value: amountIn,
                 chain: null, account,
               });
       } else {
@@ -281,17 +298,17 @@ export class SwapExecutor {
           functionName: "balanceOf",
           args: [account],
         });
-        if (wethBalance < this.cfg.tradeAmountWei) {
+        if (wethBalance < amountIn) {
           return {
             ok: false,
             simulated: false,
             token: candidate.snipedToken,
-            amountInWeth: this.cfg.tradeAmountWei,
+            amountInWeth: amountIn,
             tokenAmount: 0n,
             error: "solde WETH insuffisant (tampon non constitue)",
           };
         }
-        await this.approveAndWait(WETH9, SWAP_ROUTER_02, this.cfg.tradeAmountWei);
+        await this.approveAndWait(WETH9, SWAP_ROUTER_02, amountIn);
         hash =
           candidate.baseToken === "WETH"
             ? await walletClient.writeContract({
@@ -304,7 +321,7 @@ export class SwapExecutor {
                     tokenOut: candidate.snipedToken,
                     fee: candidate.fee,
                     recipient: account,
-                    amountIn: this.cfg.tradeAmountWei,
+                    amountIn: amountIn,
                     amountOutMinimum: amountOutMin,
                     sqrtPriceLimitX96: 0n,
                   },
@@ -319,7 +336,7 @@ export class SwapExecutor {
                   {
                     path: encodeV3Path([WETH9, USDC_NATIVE, candidate.snipedToken], [WETH_USDC_FEE, candidate.fee]),
                     recipient: account,
-                    amountIn: this.cfg.tradeAmountWei,
+                    amountIn: amountIn,
                     amountOutMinimum: amountOutMin,
                   },
                 ],
@@ -333,7 +350,7 @@ export class SwapExecutor {
           ok: false,
           simulated: false,
           token: candidate.snipedToken,
-          amountInWeth: this.cfg.tradeAmountWei,
+          amountInWeth: amountIn,
           tokenAmount: 0n,
           txHash: hash,
           error: "tx revertee",
@@ -346,7 +363,7 @@ export class SwapExecutor {
           ok: false,
           simulated: false,
           token: candidate.snipedToken,
-          amountInWeth: this.cfg.tradeAmountWei,
+          amountInWeth: amountIn,
           tokenAmount: 0n,
           txHash: hash,
           error: "aucun token recu apres swap",
@@ -356,7 +373,7 @@ export class SwapExecutor {
         ok: true,
         simulated: false,
         token: candidate.snipedToken,
-        amountInWeth: this.cfg.tradeAmountWei,
+        amountInWeth: amountIn,
         tokenAmount,
         txHash: hash,
       };
@@ -365,7 +382,7 @@ export class SwapExecutor {
         ok: false,
         simulated: false,
         token: candidate.snipedToken,
-        amountInWeth: this.cfg.tradeAmountWei,
+        amountInWeth: amountIn,
         tokenAmount: 0n,
         error: err instanceof Error ? err.message : String(err),
       };

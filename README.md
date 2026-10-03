@@ -17,7 +17,7 @@ Remplir `.env` (voir les commentaires dans le fichier). Les secrets ne sont JAMA
 |---|---|
 | `BASE_WS_URL` | RPC WebSocket (QuickNode, Alchemy, PublicNode...) pour le listener |
 | `BASE_RPC_URL` | RPC HTTPS privé/rapide pour l'exécution (le même fournisseur convient) |
-| `BASESCAN_API_KEY` | [etherscan.io/my-api-key](https://etherscan.io/my-api-key) (clé V2, couvre Base) |
+| `BASESCAN_API_KEY` | Clé API V2 de [etherscan.io/my-api-key](https://etherscan.io/my-api-key). Basescan est opéré par Etherscan : un seul compte etherscan.io couvre toutes les chaînes (Base inclus, via `chainid=8453`) |
 | `PRIVATE_KEY` | Clé privée d'un wallet **dédidé** au bot, financé en ETH sur Base |
 | `DISCORD_WEBHOOK_URL` / `TELEGRAM_*` | Notifications (optionnel). Telegram : bot via @BotFather, puis `npx tsx scripts/telegram-setup.ts` pour obtenir le `TELEGRAM_CHAT_ID` |
 
@@ -36,6 +36,17 @@ En dry-run, tout le pipeline tourne pour de vrai (écoute, risk-checks, quotages
 ```bash
 DRY_RUN=false npm start
 ```
+
+## Taille de trade dynamique en dollars
+
+Par défaut, le montant par trade est fixe (`TRADE_AMOUNT_ETH`). Pour limiter la perte unitaire en dollars — utile contre les honeypots d'où l'on ne sort jamais — activer le mode dynamique :
+
+```
+TRADE_AMOUNT_USD=5
+ETH_PRICE_REFRESH_MINUTES=10
+```
+
+Le montant devient `5 $ / prix ETH`, prix lu on-chain via la pool WETH/USDC 0.05 % (QuoterV2, aucune clé API), rafraîchi toutes les 10 minutes et mis en cache. Garde-fou : si le montant calculé sort des bornes `[0.0001 ; 0.1]` ETH (prix aberrant), l'achat est bloqué et signalé. `TRADE_AMOUNT_USD` est prioritaire sur `TRADE_AMOUNT_ETH`.
 
 ## Pipeline
 

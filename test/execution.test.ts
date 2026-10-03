@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PublicClient } from "viem";
 import { SwapExecutor, applySlippage } from "../src/execution.js";
+import { TradeAmountProvider, type QuoteClient } from "../src/trade-amount.js";
 import type { BotConfig } from "../src/config.js";
 import type { PoolCandidate, Position } from "../src/types.js";
 
@@ -37,7 +38,9 @@ class StubbedExecutor extends SwapExecutor {
 }
 
 function stubbedExecutor(cfg: BotConfig): StubbedExecutor {
-  return new StubbedExecutor({ publicClient: {} as unknown as PublicClient, cfg });
+  // Mode fixe : le provider ne consulte jamais le client de prix.
+  const amounts = new TradeAmountProvider(cfg, {} as unknown as QuoteClient);
+  return new StubbedExecutor({ publicClient: {} as unknown as PublicClient, amounts, cfg });
 }
 
 const CANDIDATE: PoolCandidate = {
@@ -94,6 +97,7 @@ describe("SwapExecutor dry-run", () => {
     }
     const executor = new FailingQuote({
       publicClient: {} as unknown as PublicClient,
+      amounts: new TradeAmountProvider(makeConfig(), {} as unknown as QuoteClient),
       cfg: makeConfig(),
     });
     const result = await executor.buy(CANDIDATE);
