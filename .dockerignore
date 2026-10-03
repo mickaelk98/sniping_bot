@@ -1,0 +1,19 @@
+# Secrets : jamais dans l'image ni le contexte de build
+.env
+.env.*
+!.env.example
+
+# Artefacts locaux
+node_modules
+dist
+logs
+*.log
+
+# Sources non nécessaires à l'image
+.git
+test
+scripts
+contracts
+
+# Docs
+*.md

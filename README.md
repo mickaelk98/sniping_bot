@@ -65,6 +65,28 @@ Déploiement du helper (Foundry/Hardhat/Remix), arguments du constructor :
 
 Le contrat n'a ni owner, ni pause, ni fonction de retrait : ne jamais en ajouter.
 
+## Déploiement Docker / Dokploy
+
+Le projet inclut `Dockerfile`, `docker-compose.yml` et `.dockerignore`. Le service est un worker sans port web.
+
+### Dokploy (service de type Compose)
+
+1. Mettre le projet dans un dépôt git. Ne **jamais** commiter `.env`.
+2. Dokploy : nouveau projet, puis service de type **Compose** pointant sur le dépôt.
+3. Coller les variables d'environnement dans l'interface Dokploy (mêmes noms que `.env.example`) : Dokploy les écrit dans un `.env` au moment du déploiement, chargé par le compose via `env_file`.
+4. Déployer. Le mode reste `DRY_RUN=true` tant que la variable n'est pas changée.
+
+### Docker en local
+
+```bash
+docker compose up -d --build
+docker logs -f snipping-bot                         # suivi temps réel
+docker exec snipping-bot sh -c "tail -f logs/*.log" # fichier de log persistant
+docker compose down                                  # stop -> SIGTERM -> arrêt propre tracé
+```
+
+Les fichiers `logs/bot-*.log` persistent dans le volume Docker `bot-logs` entre les redémarrages et les redéploiements. La clé privée n'est jamais incluse dans l'image : elle ne vit que dans les variables d'environnement du conteneur.
+
 ## Tests
 
 ```bash

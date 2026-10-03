@@ -20,7 +20,11 @@ function write(level: Level, event: string, data?: Record<string, unknown>): voi
     event,
     ...(data ?? {}),
   };
-  const line = JSON.stringify(entry);
+  // Replacer : les montants on-chain sont des BigInt, JSON.stringify
+  // les refuse nativement (sinon crash du bot au premier log concerné).
+  const line = JSON.stringify(entry, (_key, value) =>
+    typeof value === "bigint" ? value.toString() : value,
+  );
   console.log(line);
   try {
     ensureLogDir();

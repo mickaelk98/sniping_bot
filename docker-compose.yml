@@ -1,0 +1,15 @@
+services:
+  snipping-bot:
+    build: .
+    image: snipping-bot
+    container_name: snipping-bot
+    # Les variables (DRY_RUN, PRIVATE_KEY, clés API...) viennent du .env
+    # présent à côté du compose (Dokploy le génère depuis son interface).
+    env_file: .env
+    init: true
+    restart: unless-stopped
+    volumes:
+      - bot-logs:/app/logs
+
+volumes:
+  bot-logs:
