@@ -48,7 +48,8 @@ async function main(): Promise<void> {
         : `${Number(cfg.tradeAmountWei) / 1e18} ETH fixe`,
     dailyBudgetEth: Number(cfg.dailyBudgetWei) / 1e18,
     maxOpenPositions: cfg.maxOpenPositions,
-    takeProfitPct: cfg.takeProfitPct,
+    paliersTp: cfg.takeProfitTiers.map((t) => `x${t.multiple}:${t.sellPct}%`).join(","),
+    trailingStopPct: cfg.trailingStopPct,
     stopLossPct: cfg.stopLossPct,
     execution: cfg.helperContractAddress ? "contrat helper" : "routeur direct",
   });
@@ -92,23 +93,46 @@ async function main(): Promise<void> {
   }
 
   const positions = new PositionManager(cfg, executor, {
-    onClosed: (position) => {
+    onSell: (position, event) => {
+      guardrails.recordRefund(event.wethReceived);
+      if (event.kind === "partial" && event.tier) {
+        logInfo("vente_partielle", {
+          token: position.token,
+          symbole: position.tokenSymbol,
+          palier: `x${event.tier.multiple}`,
+          partVenduePct: event.tier.sellPct,
+          wethRecus: Number(event.wethReceived) / 1e18,
+          totalRealise: Number(position.realizedWeth) / 1e18,
+          simule: event.simulated,
+        });
+        void notify(
+          cfg,
+          "Vente partielle",
+          `x${event.tier.multiple} sur ${position.tokenSymbol} (${position.token})\n` +
+            `Vendu : ${event.tier.sellPct}% du solde restant -> ${Number(event.wethReceived) / 1e18} ETH` +
+            (event.simulated ? " (SIMULÉ - dry-run)" : ""),
+        );
+        return;
+      }
       if (position.close) {
-        guardrails.recordRefund(position.close.wethReceived);
         logInfo("position_fermee", {
           token: position.token,
+          symbole: position.tokenSymbol,
           raison: position.close.reason,
-          wethRecus: Number(position.close.wethReceived) / 1e18,
+          totalRealise: Number(position.close.wethReceived) / 1e18,
           pnlPct:
-            Number(position.close.wethReceived * 10_000n / position.amountInWeth) / 100 - 100,
+            position.amountInWeth > 0n
+              ? Number((position.close.wethReceived * 10_000n) / position.amountInWeth) / 100 - 100
+              : 0,
+          ventesPartielles: position.sells.length,
           simule: position.close.simulated,
         });
         void notify(
           cfg,
           "Position fermée",
           `${position.close.reason} sur ${position.tokenSymbol} (${position.token})\n` +
-            `Reçu : ${Number(position.close.wethReceived) / 1e18} ETH` +
-            (position.close.simulated ? " (simulé)" : ""),
+            `Total réalisé : ${Number(position.close.wethReceived) / 1e18} ETH pour ${Number(position.amountInWeth) / 1e18} ETH investi` +
+            (position.close.simulated ? " (SIMULÉ - dry-run)" : ""),
         );
       }
     },
@@ -210,8 +234,13 @@ async function main(): Promise<void> {
       fee: candidate.fee,
       baseToken: candidate.baseToken,
       amountInWeth: buy.amountInWeth,
+      initialTokenAmount: buy.tokenAmount,
       tokenAmount: buy.tokenAmount,
       entryValueWeth: report.sellQuoteWeth ?? buy.amountInWeth,
+      realizedWeth: 0n,
+      highWaterMultiple: 1,
+      nextTierIndex: 0,
+      sells: [],
       openedAt: new Date().toISOString(),
       openedTxHash: buy.txHash,
       status: "open",

@@ -8,6 +8,13 @@ export class ConfigError extends Error {
   }
 }
 
+export interface ProfitTier {
+  /** Multiple prix/entrée déclencheur (2 = x2). */
+  multiple: number;
+  /** Part du solde restant à vendre, en pourcentage. */
+  sellPct: number;
+}
+
 export interface BotConfig {
   dryRun: boolean;
   privateKey?: `0x${string}`;
@@ -30,7 +37,10 @@ export interface BotConfig {
   swapDeadlineSeconds: number;
   minPoolLiquidityEth: number;
   maxHolderPct: number;
-  takeProfitPct: number;
+  /** Paliers de take-profit escaladés (ventes partielles). */
+  takeProfitTiers: ProfitTier[];
+  /** Trailing stop : chute maximale depuis le plus haut, en pourcentage. */
+  trailingStopPct: number;
   stopLossPct: number;
   positionPollSeconds: number;
 }
@@ -158,9 +168,34 @@ export function loadConfig(): BotConfig {
     problems.push("MAX_HOLDER_PCT invalide (1..100)");
   }
 
-  const takeProfitPct = readNumber("TAKE_PROFIT_PCT", 50);
-  if (takeProfitPct === undefined || takeProfitPct <= 0) {
-    problems.push("TAKE_PROFIT_PCT invalide (> 0)");
+  const tiersRaw =
+    readString("TAKE_PROFIT_TIERS") ?? "2:50,5:20,10:20,20:20,30:20,40:20,50:20,100:50";
+  const takeProfitTiers: ProfitTier[] = [];
+  for (const part of tiersRaw.split(",")) {
+    const entry = part.trim();
+    if (entry.length === 0) continue;
+    const [multipleRaw, pctRaw] = entry.split(":");
+    const multiple = Number(multipleRaw);
+    const sellPct = Number(pctRaw);
+    if (!Number.isFinite(multiple) || !Number.isFinite(sellPct) || multiple <= 1 || sellPct < 1 || sellPct > 100) {
+      problems.push(`TAKE_PROFIT_TIERS invalide (format "multiple:pct", ex 2:50,5:20) : "${entry}"`);
+      break;
+    }
+    takeProfitTiers.push({ multiple, sellPct });
+  }
+  if (takeProfitTiers.length === 0 && problems.length === 0) {
+    problems.push("TAKE_PROFIT_TIERS : au moins un palier requis");
+  }
+  for (let i = 1; i < takeProfitTiers.length; i++) {
+    if (takeProfitTiers[i].multiple <= takeProfitTiers[i - 1].multiple) {
+      problems.push("TAKE_PROFIT_TIERS : les multiples doivent être strictement croissants");
+      break;
+    }
+  }
+
+  const trailingStopPct = readNumber("TRAILING_STOP_PCT", 20);
+  if (trailingStopPct === undefined || trailingStopPct < 1 || trailingStopPct > 90) {
+    problems.push("TRAILING_STOP_PCT invalide (1..90)");
   }
 
   const stopLossPct = readNumber("STOP_LOSS_PCT", 30);
@@ -196,7 +231,8 @@ export function loadConfig(): BotConfig {
     swapDeadlineSeconds: swapDeadlineSeconds!,
     minPoolLiquidityEth: minPoolLiquidityEth!,
     maxHolderPct: maxHolderPct!,
-    takeProfitPct: takeProfitPct!,
+    takeProfitTiers,
+    trailingStopPct: trailingStopPct!,
     stopLossPct: stopLossPct!,
     positionPollSeconds: positionPollSeconds!,
   };

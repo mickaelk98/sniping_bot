@@ -45,8 +45,20 @@ export interface BuyResult {
   error?: string;
 }
 
-/** Raison de fermeture d'une position. */
-export type CloseReason = "take-profit" | "stop-loss" | "manual" | "emergency";
+/** Raison de fermeture finale d'une position. */
+export type CloseReason = "stop-loss" | "manual" | "emergency" | "trailing-stop" | "tiers-complete";
+
+/** Vente partielle exécutée sur un palier de take-profit. */
+export interface PartialSell {
+  /** Multiple prix/entrée du palier (2 = x2). */
+  multiple: number;
+  /** Part du solde restant vendue (pourcentage). */
+  sharePct: number;
+  tokensSold: bigint;
+  wethReceived: bigint;
+  simulated: boolean;
+  at: string;
+}
 
 /** Position ouverte suivie par le position-manager. */
 export interface Position {
@@ -57,9 +69,19 @@ export interface Position {
   fee: number;
   baseToken: "WETH" | "USDC";
   amountInWeth: bigint;
+  /** Tokens détenus à l'ouverture (référence du multiple de prix). */
+  initialTokenAmount: bigint;
+  /** Tokens restants : décroît à chaque vente partielle. */
   tokenAmount: bigint;
   /** Valeur WETH estimée des tokens à l'ouverture (wei). */
   entryValueWeth: bigint;
+  /** WETH encaissés par les ventes partielles (wei). */
+  realizedWeth: bigint;
+  /** Multiple prix/entrée le plus haut observé. */
+  highWaterMultiple: number;
+  /** Index du prochain palier TAKE_PROFIT_TIERS à exécuter. */
+  nextTierIndex: number;
+  sells: PartialSell[];
   openedAt: string;
   openedTxHash?: `0x${string}`;
   status: "open" | "closed";
@@ -67,6 +89,7 @@ export interface Position {
   close?: {
     closedAt: string;
     reason: CloseReason;
+    /** Total WETH réalisé sur toute la vie de la position (partiels inclus). */
     wethReceived: bigint;
     txHash?: `0x${string}`;
     simulated: boolean;

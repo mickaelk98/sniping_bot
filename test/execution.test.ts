@@ -20,7 +20,8 @@ function makeConfig(overrides?: Partial<BotConfig>): BotConfig {
     swapDeadlineSeconds: 120,
     minPoolLiquidityEth: 2,
     maxHolderPct: 50,
-    takeProfitPct: 50,
+    takeProfitTiers: [{ multiple: 2, sellPct: 50 }],
+    trailingStopPct: 20,
     stopLossPct: 30,
     positionPollSeconds: 10,
     ...overrides,
@@ -32,8 +33,13 @@ class StubbedExecutor extends SwapExecutor {
   override async quoteBuy(): Promise<bigint> {
     return 1_000_000n;
   }
-  override async quoteSell(): Promise<bigint> {
-    return 47_500_000_000_000_000n;
+  override async quoteSell(
+    _token: `0x${string}`,
+    _fee: number,
+    _baseToken: "WETH" | "USDC",
+    amountTokens: bigint,
+  ): Promise<bigint> {
+    return (47_500_000_000_000_000n * amountTokens) / 1_000_000n;
   }
 }
 
@@ -62,8 +68,13 @@ function makePosition(): Position {
     fee: 10000,
     baseToken: "WETH",
     amountInWeth: 50_000_000_000_000_000n,
+    initialTokenAmount: 1_000_000n,
     tokenAmount: 1_000_000n,
     entryValueWeth: 50_000_000_000_000_000n,
+    realizedWeth: 0n,
+    highWaterMultiple: 1,
+    nextTierIndex: 0,
+    sells: [],
     openedAt: new Date().toISOString(),
     status: "open",
     consecutiveQuoteFailures: 0,
@@ -112,11 +123,16 @@ describe("SwapExecutor dry-run", () => {
     expect(result.error).toContain("wallet absent");
   });
 
-  it("sell() simule avec le quote courant", async () => {
+  it("sell() simule avec le quote courant (montant partiel ou total)", async () => {
     const executor = stubbedExecutor(makeConfig());
-    const result = await executor.sell(makePosition(), "take-profit");
-    expect(result.ok).toBe(true);
-    expect(result.simulated).toBe(true);
-    expect(result.wethReceived).toBe(47_500_000_000_000_000n);
+    const position = makePosition();
+    const total = await executor.sell(position, position.tokenAmount, "take-profit x2");
+    expect(total.ok).toBe(true);
+    expect(total.simulated).toBe(true);
+    expect(total.wethReceived).toBe(47_500_000_000_000_000n);
+
+    const partiel = await executor.sell(position, 400_000n, "take-profit x5");
+    expect(partiel.ok).toBe(true);
+    expect(partiel.wethReceived).toBe(47_500_000_000_000_000n * 400_000n / 1_000_000n);
   });
 });

@@ -57,10 +57,22 @@ PoolCreated (factory V3, WebSocket)
           └─ risk-check (contrat vérifié, fonctions dangereuses, ownership,
              liquidité, honeypot par quotage aller-retour, holders)
               └─ achat (SwapRouter02 direct ou contrat helper)
-                  └─ position-manager (take-profit / stop-loss/urgence)
+                  └─ position-manager (sortie asymétrique, voir ci-dessous)
 ```
 
 Un achat exige des risk-checks favorables, sans exception. Budget journalier atteint = arrêt automatique du bot.
+
+## Stratégie de sortie (take-profit escaladé + trailing)
+
+Les pertes des tokens snipés sont souvent totales (rug = -100 %) : la sortie doit être asymétrique. Par défaut (`TAKE_PROFIT_TIERS`) :
+
+- **x2** : vente de 50 % du solde -> le capital initial est remboursé, la position ne peut plus être perdante ;
+- **x5, x10, x20, x30, x40, x50** : vente de 20 % du solde restant à chaque palier ;
+- **x100** : vente de 50 % du solde ; au-delà, aucun plafond ;
+- **trailing stop** (`TRAILING_STOP_PCT=20`, actif après le palier x2) : vente totale si le prix chute de 20 % depuis son plus haut -> c'est lui qui capte les x200/x500 et qui clôt les moon bags ;
+- **stop-loss d'entrée** (`STOP_LOSS_PCT=30`) : protection tant qu'aucun palier n'est passé.
+
+Math : à 5 $ par trade, une seule sortie en x10 sur une dizaine de trades perdants rend la stratégie nette -- impossible avec un TP fixe à +50 % (il faudrait 40 % de réussite). Chaque vente partielle envoie une notification Telegram et restitue du budget journalier.
 
 ## Extension possible : module Jev (non inclus)
 

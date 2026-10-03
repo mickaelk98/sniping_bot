@@ -389,12 +389,12 @@ export class SwapExecutor {
     }
   }
 
-  /** Vente de la position : TP/SL/urgence, retour WETH (ou ETH puis diff). */
-  async sell(position: Position, reason: CloseReason): Promise<SellResult> {
+  /** Vente (totale ou partielle) : quote frais -> amountOutMin -> swap (ou simulation). */
+  async sell(position: Position, amountTokens: bigint, reason: string): Promise<SellResult> {
     if (this.cfg.dryRun) {
       let weth: bigint;
       try {
-        weth = await this.quoteSell(position.token, position.fee, position.baseToken, position.tokenAmount);
+        weth = await this.quoteSell(position.token, position.fee, position.baseToken, amountTokens);
       } catch {
         if (reason !== "emergency") {
           return { ok: false, wethReceived: 0n, simulated: true, error: "quotage vente impossible" };
@@ -404,7 +404,7 @@ export class SwapExecutor {
       logInfo("dry_run_sell", {
         token: position.token,
         raison: reason,
-        tokens: position.tokenAmount.toString(),
+        tokens: amountTokens.toString(),
         wethQuote: weth.toString(),
       });
       return { ok: true, wethReceived: weth, simulated: true };
@@ -419,7 +419,7 @@ export class SwapExecutor {
     try {
       let amountOutMin: bigint;
       try {
-        const quote = await this.quoteSell(position.token, position.fee, position.baseToken, position.tokenAmount);
+        const quote = await this.quoteSell(position.token, position.fee, position.baseToken, amountTokens);
         amountOutMin = applySlippage(quote, this.cfg.maxSlippageBps);
       } catch {
         if (reason === "emergency") {
@@ -444,7 +444,7 @@ export class SwapExecutor {
           });
 
       const spender = viaContract ? this.cfg.helperContractAddress! : SWAP_ROUTER_02;
-      await this.approveAndWait(position.token, spender, position.tokenAmount);
+      await this.approveAndWait(position.token, spender, amountTokens);
 
       const deadline = BigInt(Math.floor(Date.now() / 1000) + this.cfg.swapDeadlineSeconds);
       let hash: `0x${string}`;
@@ -455,7 +455,7 @@ export class SwapExecutor {
                 address: this.cfg.helperContractAddress!,
                 abi: HELPER_CONTRACT_ABI,
                 functionName: "swapExactInputSingle",
-                args: [position.token, NATIVE_ZERO, position.fee, position.tokenAmount, amountOutMin, deadline],
+                args: [position.token, NATIVE_ZERO, position.fee, amountTokens, amountOutMin, deadline],
                 chain: null, account,
               })
             : await walletClient.writeContract({
@@ -466,7 +466,7 @@ export class SwapExecutor {
                   encodeV3Path([position.token, USDC_NATIVE, WETH9], [position.fee, WETH_USDC_FEE]),
                   false,
                   true,
-                  position.tokenAmount,
+                  amountTokens,
                   amountOutMin,
                   deadline,
                 ],
@@ -485,7 +485,7 @@ export class SwapExecutor {
                     tokenOut: WETH9,
                     fee: position.fee,
                     recipient: account,
-                    amountIn: position.tokenAmount,
+                    amountIn: amountTokens,
                     amountOutMinimum: amountOutMin,
                     sqrtPriceLimitX96: 0n,
                   },
@@ -500,7 +500,7 @@ export class SwapExecutor {
                   {
                     path: encodeV3Path([position.token, USDC_NATIVE, WETH9], [position.fee, WETH_USDC_FEE]),
                     recipient: account,
-                    amountIn: position.tokenAmount,
+                    amountIn: amountTokens,
                     amountOutMinimum: amountOutMin,
                   },
                 ],
