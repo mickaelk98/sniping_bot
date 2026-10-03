@@ -95,24 +95,34 @@ interface EtherscanResponse {
   result: unknown;
 }
 
+/**
+ * Endpoints de l'API Etherscan V2. Le domaine officiel (.org) a connu des
+ * interruptions TLS globales (octobre 2026, alerte unrecognized_name depuis
+ * tous types de clients) : l'ancien domaine .io, encore fonctionnel, sert
+ * de repli automatique. L'échec TLS étant instantané, le coût du fallback
+ * est négligeable.
+ */
+const ETHERSCAN_HOSTS = ["https://api.etherscan.org", "https://api.etherscan.io"] as const;
+
 async function fetchEtherscan(params: Record<string, string>): Promise<EtherscanResponse> {
   const search = new URLSearchParams({ chainid: "8453", ...params });
-  const url = `https://api.etherscan.org/v2/api?${search.toString()}`;
-  // La connectivité vers api.etherscan.org peut être intermittente : deux
-  // retries avec backoff court avant de déclarer l'échec (fail-safe trade).
   let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) {
-      await new Promise((resolve) => setTimeout(resolve, attempt * 700));
-    }
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+  for (const host of ETHERSCAN_HOSTS) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
-      return (await response.json()) as EtherscanResponse;
-    } catch (err) {
-      lastError = err;
+      try {
+        const response = await fetch(`${host}/v2/api?${search.toString()}`, {
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} (${host})`);
+        }
+        return (await response.json()) as EtherscanResponse;
+      } catch (err) {
+        lastError = err;
+      }
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
