@@ -19,7 +19,7 @@ Remplir `.env` (voir les commentaires dans le fichier). Les secrets ne sont JAMA
 | `BASE_RPC_URL` | RPC HTTPS privé/rapide pour l'exécution (le même fournisseur convient) |
 | `BASESCAN_API_KEY` | [etherscan.io/my-api-key](https://etherscan.io/my-api-key) (clé V2, couvre Base) |
 | `PRIVATE_KEY` | Clé privée d'un wallet **dédidé** au bot, financé en ETH sur Base |
-| `DISCORD_WEBHOOK_URL` / `TELEGRAM_*` | Notifications (optionnel) |
+| `DISCORD_WEBHOOK_URL` / `TELEGRAM_*` | Notifications (optionnel). Telegram : bot via @BotFather, puis `npx tsx scripts/telegram-setup.ts` pour obtenir le `TELEGRAM_CHAT_ID` |
 
 ## Utilisation
 

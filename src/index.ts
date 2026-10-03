@@ -13,6 +13,21 @@ import type { PoolCandidate } from "./types.js";
 
 const SEEN_POOL_TTL_MS = 60 * 60 * 1000;
 
+/** Libellés humains des contrôles de risque, pour les notifications. */
+const CHECK_LABELS: Record<string, string> = {
+  basescan_verified: "contrat non vérifié",
+  dangerous_functions: "fonctions dangereuses (mint/blacklist)",
+  ownership: "owner actif",
+  pool_liquidity: "liquidité insuffisante",
+  sell_simulation: "revente impossible (honeypot/taxes)",
+  holders_concentration: "holders trop concentrés",
+  internal_error: "erreur interne",
+};
+
+function shortAddress(address: string): string {
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
 const counters = {
   poolsSeen: 0,
   candidatesAccepted: 0,
@@ -32,6 +47,20 @@ async function main(): Promise<void> {
     stopLossPct: cfg.stopLossPct,
     execution: cfg.helperContractAddress ? "contrat helper" : "routeur direct",
   });
+
+  if (cfg.telegramBotToken && !cfg.telegramChatId) {
+    logWarn("telegram_incomplet", {
+      note: "TELEGRAM_BOT_TOKEN present sans TELEGRAM_CHAT_ID : lance npx tsx scripts/telegram-setup.ts",
+    });
+  }
+
+  await notify(
+    cfg,
+    "Bot démarré",
+    cfg.dryRun
+      ? "Mode TEST (dry-run) : transactions simulées, aucun vrai fond engagé."
+      : "Mode RÉEL : le bot trade avec de vrais fonds.",
+  );
 
   const publicClient = createPublicClient({ chain: base, transport: http(cfg.rpcUrl) });
 
@@ -138,6 +167,15 @@ async function main(): Promise<void> {
         token: candidate.snipedToken,
         details: report.metrics.filter((m) => !m.passed).map((m) => `${m.check} - ${m.detail}`),
       });
+      const raisons = report.metrics
+        .filter((m) => !m.passed)
+        .map((m) => CHECK_LABELS[m.check] ?? m.check)
+        .join(", ");
+      await notify(
+        cfg,
+        "Refusé",
+        `${report.tokenSymbol ?? shortAddress(candidate.snipedToken)} (${shortAddress(candidate.snipedToken)})\nMotif : ${raisons}`,
+      );
       return;
     }
     counters.riskPassed++;
