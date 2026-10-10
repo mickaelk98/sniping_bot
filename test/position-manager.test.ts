@@ -35,6 +35,7 @@ function makeConfig(overrides?: Partial<BotConfig>): BotConfig {
     takeProfitTiers: TIERS,
     trailingStopPct: 20,
     stopLossPct: 30,
+    maxHoldHours: 6,
     positionPollSeconds: 10,
     ...overrides,
   };
@@ -250,5 +251,59 @@ describe("PositionManager - stop-loss et urgence", () => {
     executor.multiple = 1.7;
     await pm.tick();
     expect(events).toEqual(["partial x2", "final trailing-stop"]);
+  });
+});
+
+describe("PositionManager - durée max de détention", () => {
+  const H7 = 7 * 3_600_000;
+
+  it("position âgée sans palier -> vente max-hold du solde complet", async () => {
+    const executor = new FakeExecutor();
+    executor.multiple = 1.2; // zone morte : ni palier ni stop-loss
+    const pm = new PositionManager(makeConfig(), executor);
+    const position = makePosition();
+    position.openedAt = new Date(Date.now() - H7).toISOString();
+    pm.open(position);
+    await pm.tick();
+
+    expect(position.status).toBe("closed");
+    expect(position.close?.reason).toBe("max-hold");
+    expect(executor.sells).toHaveLength(1);
+    expect(executor.sells[0]!.amount).toBe(1_000_000n);
+  });
+
+  it("palier franchi : la position gagnante est exempte", async () => {
+    const executor = new FakeExecutor();
+    const pm = new PositionManager(makeConfig(), executor);
+    const position = makePosition();
+    position.openedAt = new Date(Date.now() - H7).toISOString();
+    executor.multiple = 2;
+    pm.open(position);
+    await pm.tick(); // palier x2 consommé, capital sécurisé
+
+    executor.multiple = 1.7; // au-dessus du trailing (2 * 0.8 = 1.6)
+    await pm.tick();
+    expect(position.status).toBe("open"); // âgée de 7 h mais gagnante : conservée
+  });
+
+  it("MAX_HOLD_HOURS=0 désactive la règle", async () => {
+    const executor = new FakeExecutor();
+    executor.multiple = 1.2;
+    const pm = new PositionManager(makeConfig({ maxHoldHours: 0 }), executor);
+    const position = makePosition();
+    position.openedAt = new Date(Date.now() - H7).toISOString();
+    pm.open(position);
+    await pm.tick();
+    expect(position.status).toBe("open");
+  });
+
+  it("position récente : pas de fermeture", async () => {
+    const executor = new FakeExecutor();
+    executor.multiple = 1.2;
+    const pm = new PositionManager(makeConfig(), executor);
+    const position = makePosition(); // openedAt = maintenant
+    pm.open(position);
+    await pm.tick();
+    expect(position.status).toBe("open");
   });
 });

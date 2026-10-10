@@ -70,7 +70,8 @@ Les pertes des tokens snipés sont souvent totales (rug = -100 %) : la sortie do
 - **x5, x10, x20, x30, x40, x50** : vente de 20 % du solde restant à chaque palier ;
 - **x100** : vente de 50 % du solde ; au-delà, aucun plafond ;
 - **trailing stop** (`TRAILING_STOP_PCT=20`, actif après le palier x2) : vente totale si le prix chute de 20 % depuis son plus haut -> c'est lui qui capte les x200/x500 et qui clôt les moon bags ;
-- **stop-loss d'entrée** (`STOP_LOSS_PCT=30`) : protection tant qu'aucun palier n'est passé.
+- **stop-loss d'entrée** (`STOP_LOSS_PCT=30`) : protection tant qu'aucun palier n'est passé ;
+- **durée max de détention** (`MAX_HOLD_HOURS=6`) : une position qui n'a franchi aucun palier après 6 h est vendue entièrement — slot libéré et budget restitué ; les positions gagnantes (palier franchi) restent gérées par le trailing stop.
 
 Math : à 5 $ par trade, une seule sortie en x10 sur une dizaine de trades perdants rend la stratégie nette -- impossible avec un TP fixe à +50 % (il faudrait 40 % de réussite). Chaque vente partielle envoie une notification Telegram et restitue du budget journalier.
 

@@ -42,6 +42,8 @@ export interface BotConfig {
   /** Trailing stop : chute maximale depuis le plus haut, en pourcentage. */
   trailingStopPct: number;
   stopLossPct: number;
+  /** Durée max de détention d'une position sans palier franchi (heures ; 0 = désactivé). */
+  maxHoldHours: number;
   positionPollSeconds: number;
 }
 
@@ -203,6 +205,11 @@ export function loadConfig(): BotConfig {
     problems.push("STOP_LOSS_PCT invalide (> 0)");
   }
 
+  const maxHoldHours = readNumber("MAX_HOLD_HOURS", 6);
+  if (maxHoldHours === undefined || maxHoldHours < 0) {
+    problems.push("MAX_HOLD_HOURS invalide (>= 0 ; 0 = désactivé)");
+  }
+
   const positionPollSeconds = readNumber("POSITION_POLL_SECONDS", 10);
   if (positionPollSeconds === undefined || positionPollSeconds < 3) {
     problems.push("POSITION_POLL_SECONDS invalide (>= 3)");
@@ -234,6 +241,7 @@ export function loadConfig(): BotConfig {
     takeProfitTiers,
     trailingStopPct: trailingStopPct!,
     stopLossPct: stopLossPct!,
+    maxHoldHours: maxHoldHours!,
     positionPollSeconds: positionPollSeconds!,
   };
 }

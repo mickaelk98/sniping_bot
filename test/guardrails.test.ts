@@ -19,6 +19,7 @@ function makeConfig(overrides?: Partial<BotConfig>): BotConfig {
     takeProfitTiers: [{ multiple: 2, sellPct: 50 }],
     trailingStopPct: 20,
     stopLossPct: 30,
+    maxHoldHours: 6,
     positionPollSeconds: 10,
     ...overrides,
   };

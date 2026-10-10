@@ -47,6 +47,8 @@ export function priceMultiple(
  * - trailing stop (TRAILING_STOP_PCT) actif dès le premier palier passé
  *   (capital initial sécurisé) : vente totale si chute depuis le plus haut ;
  * - stop-loss d'entrée (STOP_LOSS_PCT) tant qu'aucun palier n'est passé ;
+ * - durée max de détention (MAX_HOLD_HOURS) pour une position qui n'a jamais
+ *   franchi de palier : libère le slot et restitue du budget ;
  * - vente d'urgence après 3 échecs de quotage consécutifs (pool morte).
  * Une vente échouée laisse la position ouverte pour retry au tick suivant.
  */
@@ -157,6 +159,18 @@ export class PositionManager {
       // 3. Stop-loss d'entrée : tant qu'aucun palier n'a été exécuté.
       if (position.nextTierIndex === 0 && multiple <= 1 - this.cfg.stopLossPct / 100) {
         await this.sellAll(position, "stop-loss");
+      }
+      if (position.status !== "open") continue;
+
+      // 4. Durée max : une position qui n'a jamais décollé bloque un slot
+      //    et du budget ; au-delà de MAX_HOLD_HOURS, sortie à prix de marché.
+      //    Les positions ayant passé un palier restent gérées par le trailing stop.
+      if (
+        this.cfg.maxHoldHours > 0 &&
+        position.nextTierIndex === 0 &&
+        Date.now() - Date.parse(position.openedAt) >= this.cfg.maxHoldHours * 3_600_000
+      ) {
+        await this.sellAll(position, "max-hold");
       }
     }
   }

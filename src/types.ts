@@ -46,7 +46,7 @@ export interface BuyResult {
 }
 
 /** Raison de fermeture finale d'une position. */
-export type CloseReason = "stop-loss" | "manual" | "emergency" | "trailing-stop" | "tiers-complete";
+export type CloseReason = "stop-loss" | "manual" | "emergency" | "trailing-stop" | "tiers-complete" | "max-hold";
 
 /** Vente partielle exécutée sur un palier de take-profit. */
 export interface PartialSell {

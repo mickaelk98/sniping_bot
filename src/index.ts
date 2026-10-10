@@ -115,10 +115,13 @@ async function main(): Promise<void> {
         return;
       }
       if (position.close) {
+        const heldHours =
+          (Date.parse(position.close.closedAt) - Date.parse(position.openedAt)) / 3_600_000;
         logInfo("position_fermee", {
           token: position.token,
           symbole: position.tokenSymbol,
           raison: position.close.reason,
+          dureeH: Math.round(heldHours * 10) / 10,
           totalRealise: Number(position.close.wethReceived) / 1e18,
           pnlPct:
             position.amountInWeth > 0n
@@ -131,6 +134,7 @@ async function main(): Promise<void> {
           cfg,
           "Position fermée",
           `${position.close.reason} sur ${position.tokenSymbol} (${position.token})\n` +
+            `Durée : ${heldHours.toFixed(1)} h\n` +
             `Total réalisé : ${Number(position.close.wethReceived) / 1e18} ETH pour ${Number(position.amountInWeth) / 1e18} ETH investi` +
             (position.close.simulated ? " (SIMULÉ - dry-run)" : ""),
         );
